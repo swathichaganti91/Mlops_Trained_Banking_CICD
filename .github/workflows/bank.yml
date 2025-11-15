@@ -1,9 +1,16 @@
-name: Deploy Flask ML App with Health Check (Train model on EC2)1
+name: Deploy Flask ML App with Health Check (Manual Run)
 
 on:
-  push:
-    branches: [ main ]
   workflow_dispatch:
+    inputs:
+      train_script:
+        description: 'Name of the training script'
+        required: true
+        default: 'train_model_real_data.py'
+      ec2_host:
+        description: 'EC2 Hostname or IP'
+        required: true
+        default: ${{ secrets.EC2_HOST }}
 
 jobs:
   deploy:
@@ -21,7 +28,7 @@ jobs:
 
       - name: 🧰 Backup Existing App on EC2 (overwrite always)
         run: |
-          ssh -o StrictHostKeyChecking=no ec2-user@${{ secrets.EC2_HOST }} '
+          ssh -o StrictHostKeyChecking=no ec2-user@${{ github.event.inputs.ec2_host }} '
             if [ -d ~/mlapp ]; then
               echo "🔁 Backing up to ~/mlapp-backup (overwriting if exists)"
               rm -rf ~/mlapp-backup
@@ -33,12 +40,12 @@ jobs:
 
       - name: 🚚 Upload New App Code to EC2
         run: |
-          ssh -o StrictHostKeyChecking=no ec2-user@${{ secrets.EC2_HOST }} 'mkdir -p ~/mlapp'
-          scp -o StrictHostKeyChecking=no -r * ec2-user@${{ secrets.EC2_HOST }}:~/mlapp/
+          ssh -o StrictHostKeyChecking=no ec2-user@${{ github.event.inputs.ec2_host }} 'mkdir -p ~/mlapp'
+          scp -o StrictHostKeyChecking=no -r * ec2-user@${{ github.event.inputs.ec2_host }}:~/mlapp/
 
       - name: 🐍 Install Python & pip on EC2
         run: |
-          ssh -tt ec2-user@${{ secrets.EC2_HOST }} '
+          ssh -tt ec2-user@${{ github.event.inputs.ec2_host }} '
             sudo yum install -y python3 &&
             python3 -m ensurepip --upgrade &&
             pip3 install --upgrade pip setuptools
@@ -46,21 +53,21 @@ jobs:
 
       - name: 📦 Install Python Dependencies
         run: |
-          ssh -tt ec2-user@${{ secrets.EC2_HOST }} '
+          ssh -tt ec2-user@${{ github.event.inputs.ec2_host }} '
             cd ~/mlapp &&
             pip3 install -r requirements.txt
           '
 
       - name: 🧠 Train ML Model on EC2
         run: |
-          ssh -tt ec2-user@${{ secrets.EC2_HOST }} '
+          ssh -tt ec2-user@${{ github.event.inputs.ec2_host }} '
             cd ~/mlapp &&
-            python3 train_model.py
+            python3 ${{ github.event.inputs.train_script }}
           '
 
       - name: 🚀 Stop Old Flask App and Start New
         run: |
-          ssh -tt ec2-user@${{ secrets.EC2_HOST }} '
+          ssh -tt ec2-user@${{ github.event.inputs.ec2_host }} '
             echo "🛑 Killing app on port 5000..."
             PID=$(lsof -t -i:5000) && kill -9 $PID || echo "No app running on port 5000"
 
@@ -83,7 +90,7 @@ jobs:
       - name: 🔍 Health Check
         run: |
           echo "🔎 Running health check..."
-          curl --fail http://${{ secrets.EC2_HOST }}:5000/health
+          curl --fail http://${{ github.event.inputs.ec2_host }}:5000/health
 
       - name: ✅ Notify Success
         if: success()
@@ -93,7 +100,7 @@ jobs:
         if: failure()
         run: |
           echo "❌ Health check failed. Attempting rollback..."
-          ssh -tt ec2-user@${{ secrets.EC2_HOST }} '
+          ssh -tt ec2-user@${{ github.event.inputs.ec2_host }} '
             if [ -d ~/mlapp-backup ]; then
               echo "🔁 Restoring from backup..."
               rm -rf ~/mlapp
