@@ -1,6 +1,8 @@
 name: Deploy Flask ML App with Health Check (Train model on EC2)
 
 on:
+  # push:
+  #   branches: [ main ]
   workflow_dispatch:   # ✅ Manual trigger only
 
 jobs:
